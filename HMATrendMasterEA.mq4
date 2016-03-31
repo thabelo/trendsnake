@@ -22,9 +22,11 @@ double STP = NormalizeDouble(Bid-tp*Point,Digits);
 
 extern string    _______Indicators______;
 int       Extra_Pips=10;
-extern int       HMA_Period=21;
-extern int       HMA_Mode=3;
+extern int        HMA_Period=21;
+extern int        HMA_Mode=3;
 
+// trailing stop on / off 
+extern bool       trailingStopOn = true;
 
 // Size of buffer to read 
 extern int buffer_size = 3;
@@ -32,18 +34,8 @@ extern int buffer_size = 3;
 // number of candles to buy/sell
 extern int tradeCount  = 3;
 
-// number of candles to read before buying/selling
-extern int beforeTradeCount   = 3;
-
-// number of candles after close of trade (candle color change )
-extern int afterTradeCount    = 3;
-
-// count color dots
-extern int tradeMaxCount = 3;
-
 // Magic number
 extern int Magic = 2016; 	// Order magic number
-
 // Lots
 double LotsOptimized = 1.0;  //Lots
 
@@ -53,19 +45,19 @@ extern  int Slippage = 100;   // in pips
 // Cool name
 extern string OrderCommentary = "TABS";
 
-// TMP Array
-int tmpArray[];
-
-
+// buy/sell state  none=-1, buy=1, sell=0
 int state = -1;
 
-// Entry Alert State
+// buying / selling trend  buying=1, selling=0
 int trend = -1;
 
-// Buy sell Trend
+// buying / selling trend for buysell EA 
 int trendBSA = -1;
 
+// buying
 int BUYING = 1;
+
+// selling 
 int SELLING = 0;
 
 double prevTrade = 0.0;
@@ -110,7 +102,7 @@ int deinit() {
 //+------------------------------------------------------------------+
 //| expert start function                                            |
 //+------------------------------------------------------------------+
-int start() {
+bool setTrailingStop(){
    int ticket = -1;
    bool res = false;
    double stopLoss = 0;
@@ -119,13 +111,17 @@ int start() {
    if(state == BUYING ){
       stopLoss = NormalizeDouble(Bid-((MarketInfo(Symbol(),MODE_STOPLEVEL)+offSet)*Point),Digits);
       printf("BUY TS [%f]: %f",Bid, stopLoss);
+      // get open ticket number 
       ticket = OrderTicketByMagicNum(Magic);
-      if( stopLoss > OrderStopLoss() || OrderStopLoss() == 0 && OrderProfit() > 0.0 ){
-         //res=OrderModify(OrderTicket(),OrderOpenPrice(),stopLoss,0,0,Blue);
+      if((stopLoss > OrderStopLoss() || OrderStopLoss() == 0) && (OrderProfit() > 0.0) ) 
+      {
+         res=OrderModify(OrderTicket(),OrderOpenPrice(),stopLoss,0,0,Blue);
          if( !res ){
             Print("Error in OrderModify. Error code=",GetLastError());
+            return false;
          } else {
             Print("Order modified successfully.");
+            return true;
          }
       }
    }
@@ -133,14 +129,23 @@ int start() {
       stopLoss = NormalizeDouble(Ask+((MarketInfo(Symbol(),MODE_STOPLEVEL)+offSet)*Point),Digits);
       printf("SELL TS [%f]: %f - %f",Ask, stopLoss,OrderStopLoss());
       ticket = OrderTicketByMagicNum(Magic);
-      if(  stopLoss < OrderStopLoss() || OrderStopLoss() == 0 && OrderProfit() > 0.0){
-         //res=OrderModify(OrderTicket(),OrderOpenPrice(),stopLoss,0,0,Blue);
+      if((stopLoss < OrderStopLoss() || OrderStopLoss() == 0) && OrderProfit() > 0.0){
+         res=OrderModify(OrderTicket(),OrderOpenPrice(),stopLoss,0,0,Blue);
          if( !res ){
             Print("Error in OrderModify. Error code=",GetLastError());
+            return false;
          } else {
             Print("Order modified successfully.");
+            return true;
          }
       }
+   }
+   return true;
+}
+int start() {
+
+   if(trailingStopOn){
+      setTrailingStop();
    }
    // get next candle 
    if (BarsCount != Bars) {
@@ -377,10 +382,11 @@ int start() {
 //+------------------------------------------------------------------+
 int CloseOrder(int MagicNumber) {
    // Print("Profit for the order 10 : ",OrderProfit());
+   bool os,oc = false;
    int total = OrdersTotal();
    printf("Closing....[%i]", total);
    for (int i = 0; i < total; i++) {
-      OrderSelect(i, SELECT_BY_POS);
+      os = OrderSelect(i, SELECT_BY_POS);
       printf("Iterate.............: %i", OrderMagicNumber());
       // if (OrderSelect(i, SELECT_BY_POS) == false) continue;
       if (OrderMagicNumber() == MagicNumber){
@@ -388,12 +394,12 @@ int CloseOrder(int MagicNumber) {
          {
             printf("Closing Buy++++++++++++++++++++++++++++++++++++++++++");
             RefreshRates();
-            OrderClose(OrderTicket(), OrderLots(), Bid, Slippage);
+            oc = OrderClose(OrderTicket(), OrderLots(), Bid, Slippage);
          }
          else if (OrderType() == OP_SELL){
             printf("Closing Sell------------------------------------------");
             RefreshRates();
-            OrderClose(OrderTicket(), OrderLots(), Ask, Slippage);
+            oc = OrderClose(OrderTicket(), OrderLots(), Ask, Slippage);
          }
       }
    }
@@ -442,4 +448,5 @@ int OrderTicketByMagicNum(int magic_number) {
     if (OrderSelect(i, SELECT_BY_POS) == false) continue;
     if (OrderMagicNumber() == magic_number) return(OrderTicket());
   }   
+  return -1;
 }
